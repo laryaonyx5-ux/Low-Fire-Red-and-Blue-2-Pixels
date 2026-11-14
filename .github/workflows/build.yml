@@ -1,0 +1,33 @@
+name: Build resource pack
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "assets/**"
+      - "pack.mcmeta"
+      - ".github/workflows/build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Build resource pack ZIP
+        run: |
+          mkdir -p dist
+          zip -r "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip" pack.mcmeta assets
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Low-Fire-Red-and-Blue-2-Pixels-v1.1.0
+          path: dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip
+          if-no-files-found: error
+          retention-days: 30
