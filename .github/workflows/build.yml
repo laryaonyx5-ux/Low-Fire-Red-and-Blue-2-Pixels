@@ -15,10 +15,89 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Prepare the first-person low-fire overlay
+        run: |
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          import io, json, urllib.request, zipfile
+          from pathlib import Path
+          from PIL import Image
+
+          version = "26.2"
+          manifest = json.load(urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
+          entry = next(v for v in manifest["versions"] if v["id"] == version)
+          version_json = json.load(urllib.request.urlopen(entry["url"]))
+          client_url = version_json["downloads"]["client"]["url"]
+          with urllib.request.urlopen(client_url) as response:
+              client_jar = response.read()
+
+          root = Path("assets/minecraft")
+          texture_dir = root / "textures/block"
+          texture_dir.mkdir(parents=True, exist_ok=True)
+          files = ["fire_0.png", "fire_1.png", "soul_fire_0.png", "soul_fire_1.png"]
+          with zipfile.ZipFile(io.BytesIO(client_jar)) as jar:
+              for name in files:
+                  source = f"assets/minecraft/textures/block/{name}"
+                  data = jar.read(source)
+                  stem = name[:-4]
+                  (texture_dir / f"{stem.replace('fire_', 'fire_world_')}.png").write_bytes(data)
+                  meta_name = source + ".mcmeta"
+                  if meta_name in jar.namelist():
+                      (texture_dir / f"{stem.replace('fire_', 'fire_world_')}.png.mcmeta").write_bytes(jar.read(meta_name))
+
+                  # Keep the vanilla fire animation, but make the first-person flame
+                  # visible only in the bottom 6 pixels of each 16x16 frame.
+                  if name.startswith("fire_"):
+                      image = Image.open(io.BytesIO(data)).convert("RGBA")
+                      frame_height = image.width
+                      if image.height % frame_height:
+                          raise RuntimeError(f"Unexpected animated texture dimensions for {name}: {image.size}")
+                      pixels = image.load()
+                      keep_rows = 6
+                      for frame_y in range(0, image.height, frame_height):
+                          for y in range(frame_y, frame_y + frame_height - keep_rows):
+                              for x in range(image.width):
+                                  r, g, b, a = pixels[x, y]
+                                  pixels[x, y] = (r, g, b, 0)
+                      image.save(texture_dir / name, format="PNG")
+
+          # Preserve the vanilla atlas definition and explicitly retain the two
+          # first-person fire sprites after block models are redirected to copies.
+          atlas_path = root / "atlases/blocks.json"
+          atlas_path.parent.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(io.BytesIO(client_jar)) as jar:
+              atlas = json.loads(jar.read("assets/minecraft/atlases/blocks.json"))
+          sources = atlas.setdefault("sources", [])
+          for texture in ("minecraft:block/fire_0", "minecraft:block/fire_1"):
+              if not any(s.get("type") == "single" and s.get("resource") == texture for s in sources):
+                  sources.append({"type": "single", "resource": texture})
+          atlas_path.write_text(json.dumps(atlas, indent=2) + "\n", encoding="utf-8")
+
+          # Block and soul-fire models use untouched copies; only the on-screen
+          # fire sprites above are shortened.
+          model_dir = root / "models/block"
+          for path in model_dir.glob("*.json"):
+              text = path.read_text(encoding="utf-8")
+              for old, new in (
+                  ("block/soul_fire_0", "block/soul_fire_world_0"),
+                  ("block/soul_fire_1", "block/soul_fire_world_1"),
+                  ("block/fire_0", "block/fire_world_0"),
+                  ("block/fire_1", "block/fire_world_1"),
+              ):
+                  text = text.replace(old, new)
+              path.write_text(text, encoding="utf-8")
+          print("Generated shortened first-person fire textures and preserved full world-fire textures.")
+          PY
+
       - name: Validate resource pack files
         run: |
           test -f pack.mcmeta
           test -d assets/minecraft/models/block
+          test -f assets/minecraft/textures/block/fire_0.png
+          test -f assets/minecraft/textures/block/fire_1.png
+          test -f assets/minecraft/textures/block/fire_world_0.png
+          test -f assets/minecraft/textures/block/fire_world_1.png
+          test -f assets/minecraft/atlases/blocks.json
           python3 - <<'PY'
           import json
           from pathlib import Path
@@ -28,23 +107,24 @@ jobs:
           assert models, "No block model JSON files found"
           for path in models:
               json.loads(path.read_text(encoding="utf-8"))
-          print(f"Validated {len(models)} model JSON files")
+          json.loads(Path("assets/minecraft/atlases/blocks.json").read_text(encoding="utf-8"))
+          print(f"Validated {len(models)} model JSON files and fire textures")
           PY
 
       - name: Build a clean resource-pack ZIP
         run: |
           mkdir -p dist
-          rm -f "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip"
-          cd .
-          zip -X -r "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip" pack.mcmeta assets
-          unzip -t "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip"
+          zip -X -r "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.2.0.zip" pack.mcmeta assets
+          unzip -t "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.2.0.zip"
           python3 - <<'PY'
           from zipfile import ZipFile
-          path = "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip"
+          path = "dist/Low-Fire-Red-and-Blue-2-Pixels-v1.2.0.zip"
           with ZipFile(path) as archive:
               names = archive.namelist()
               assert "pack.mcmeta" in names, "pack.mcmeta must be at ZIP root"
-              assert any(n.startswith("assets/minecraft/models/block/") for n in names)
+              assert "assets/minecraft/textures/block/fire_0.png" in names
+              assert "assets/minecraft/textures/block/fire_world_0.png" in names
+              assert "assets/minecraft/atlases/blocks.json" in names
               assert archive.testzip() is None, "ZIP CRC validation failed"
               print(f"ZIP validated: {len(names)} entries")
           PY
@@ -52,10 +132,10 @@ jobs:
       - name: Publish the ZIP as a direct GitHub Release download
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0-build-${{ github.run_number }}
-          name: Low Fire Red and Blue 2 Pixels v1.1.0 (build ${{ github.run_number }})
-          body: "Minecraft resource pack ZIP. Download the .zip asset directly; do not download the Actions artifact wrapper."
-          files: dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip
+          tag_name: v1.2.0-build-${{ github.run_number }}
+          name: Low Fire Red and Blue 2 Pixels v1.2.0 (build ${{ github.run_number }})
+          body: "Version 1.2.0 adds a shortened first-person fire overlay while preserving the full-size world fire. Download the .zip asset directly."
+          files: dist/Low-Fire-Red-and-Blue-2-Pixels-v1.2.0.zip
           draft: false
           prerelease: true
           make_latest: false
@@ -63,7 +143,7 @@ jobs:
       - name: Upload CI copy
         uses: actions/upload-artifact@v4
         with:
-          name: Low-Fire-Red-and-Blue-2-Pixels-v1.1.0-CI
-          path: dist/Low-Fire-Red-and-Blue-2-Pixels-v1.1.0.zip
+          name: Low-Fire-Red-and-Blue-2-Pixels-v1.2.0-CI
+          path: dist/Low-Fire-Red-and-Blue-2-Pixels-v1.2.0.zip
           if-no-files-found: error
           retention-days: 30
