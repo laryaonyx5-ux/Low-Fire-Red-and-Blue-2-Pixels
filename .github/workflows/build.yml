@@ -53,7 +53,7 @@ jobs:
                       if image.height % frame_height:
                           raise RuntimeError(f"Unexpected animated texture dimensions for {name}: {image.size}")
                       pixels = image.load()
-                      keep_rows = 6
+                      keep_rows = 4
                       for frame_y in range(0, image.height, frame_height):
                           for y in range(frame_y, frame_y + frame_height - keep_rows):
                               for x in range(image.width):
