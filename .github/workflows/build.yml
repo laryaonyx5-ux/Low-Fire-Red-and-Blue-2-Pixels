@@ -23,7 +23,7 @@ jobs:
           from pathlib import Path
           from PIL import Image
 
-          version = "26.2"
+          version = "26.3"
           manifest = json.load(urllib.request.urlopen("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"))
           entry = next(v for v in manifest["versions"] if v["id"] == version)
           version_json = json.load(urllib.request.urlopen(entry["url"]))
@@ -47,7 +47,7 @@ jobs:
 
                   # Keep the vanilla fire animation, but make the first-person flame
                   # visible only in the bottom 6 pixels of each 16x16 frame.
-                  if name.startswith("fire_"):
+                  if name in ("fire_0.png", "fire_1.png", "soul_fire_0.png", "soul_fire_1.png"):
                       image = Image.open(io.BytesIO(data)).convert("RGBA")
                       frame_height = image.width
                       if image.height % frame_height:
@@ -86,7 +86,7 @@ jobs:
               ):
                   text = text.replace(old, new)
               path.write_text(text, encoding="utf-8")
-          print("Generated shortened first-person fire textures and preserved full world-fire textures.")
+          print("Generated shortened first-person normal and soul-fire overlays; kept world-fire textures unchanged.")
           PY
 
       - name: Validate resource pack files
@@ -97,6 +97,8 @@ jobs:
           test -f assets/minecraft/textures/block/fire_1.png
           test -f assets/minecraft/textures/block/fire_world_0.png
           test -f assets/minecraft/textures/block/fire_world_1.png
+          test -f assets/minecraft/textures/block/soul_fire_world_0.png
+          test -f assets/minecraft/textures/block/soul_fire_world_1.png
           test -f assets/minecraft/atlases/blocks.json
           python3 - <<'PY'
           import json
@@ -124,6 +126,8 @@ jobs:
               assert "pack.mcmeta" in names, "pack.mcmeta must be at ZIP root"
               assert "assets/minecraft/textures/block/fire_0.png" in names
               assert "assets/minecraft/textures/block/fire_world_0.png" in names
+              assert "assets/minecraft/textures/block/soul_fire_0.png" in names
+              assert "assets/minecraft/textures/block/soul_fire_world_0.png" in names
               assert "assets/minecraft/atlases/blocks.json" in names
               assert archive.testzip() is None, "ZIP CRC validation failed"
               print(f"ZIP validated: {len(names)} entries")
