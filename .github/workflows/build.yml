@@ -3,10 +3,6 @@ name: Build resource pack
 on:
   push:
     branches: [main]
-    paths:
-      - "assets/**"
-      - "pack.mcmeta"
-      - ".github/workflows/build.yml"
   workflow_dispatch:
 
 permissions:
